@@ -5,6 +5,8 @@ is a real mouth recording**.
 
 **A collab: SpeTheof 🎤 × Aura 🔮**
 
+**▶ Play it now — https://speetheof.github.io/Armory-Defense/** (nothing to install)
+
 ---
 
 ## What is it
@@ -55,6 +57,9 @@ Two sources, one rule: **recordings always win, synthesizers fill the gaps.**
 | `audio/sfx/` | `sound_key.mp3` (UI, impacts, explosions) | Direct sounds |
 
 - Drop files in and they **auto-load — zero code edits**. Take counts are unlimited.
+- Discovery order: `audio/manifest.json` → directory listing → built-in list. Static hosts
+  (GitHub Pages) can't list folders, so after adding/removing a recording run
+  `node tools/make-manifest.js` and commit the refreshed manifest.
 - Guns play **only** real recordings (no synth fallbacks).
 - SFX fall back to Aura's oscillator synthesis when a recording doesn't exist yet, and a real
   recording in `audio/sfx/` **overrides the synth automatically**. See

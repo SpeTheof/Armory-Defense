@@ -1,5 +1,5 @@
 // ============================================================
-// ARMORY DEFENSE v1.0 - Complete Game Engine
+// ARMORY DEFENSE v1.0.1 - Complete Game Engine
 // Vibe Coded by Aura & Spe 🔫
 // ============================================================
 
@@ -86,36 +86,73 @@ const AudioEngine = {
             return best || name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
         };
 
-        for (const dir of DIRS) {
-            let files = [];
-            try {
-                const resp = await fetch(dir);
-                if (resp.ok) {
-                    const html = await resp.text();
-                    files = [...html.matchAll(/<a href="\.\/([^"]+\.(?:mp3|wav|ogg))"/gi)]
-                        .map(m => decodeURIComponent(m[1]));
-                }
-            } catch (e) { /* dir not listable - try next */ }
+        // ---- FILE DISCOVERY (3 sources, best first) ----
+        //   1. audio/manifest.json -> works EVERYWHERE, incl. GitHub Pages (no dir listing there)
+        //   2. directory listing   -> local dev servers (npx http-server, python -m http.server)
+        //   3. built-in fallback   -> last resort, so a shipped build is never silent
+        // After adding/removing a recording run:  node tools/make-manifest.js
+        const fileNames = {};
+        for (const d of DIRS) fileNames[d] = [];
+        let src = 'none';
 
-            for (const f of files) {
-                const base = f.replace(/\.(mp3|wav|ogg)$/i, '');
-                const takeMatch = base.match(/^(\d+)_(.+)_(\d+)$/);
-                if (dir.includes('weapons') && takeMatch) {
-                    // NN_Name_Take -> weapon rotation group
-                    const key = resolveKey(takeMatch[2]);
-                    this.soundCat[key] = 'weapons';
-                    (groups[key] = groups[key] || []).push({ take: parseInt(takeMatch[3], 10), file: dir + f });
-                } else {
-                    // Plain key (sfx or single-file weapon)
-                    const key = resolveKey(base);
-                    this.soundCat[key] = dir.includes('weapons') ? 'weapons' : 'sfx';
-                    (groups[key] = groups[key] || []).push({ take: 1, file: dir + f });
+        // 1) manifest.json
+        try {
+            const mr = await fetch('audio/manifest.json', { cache: 'no-store' });
+            if (mr.ok) {
+                const m = await mr.json();
+                for (const dir of DIRS) {
+                    const list = m[dir] || m[dir.replace(/\/$/, '')];
+                    if (Array.isArray(list)) fileNames[dir] = list.map(f => String(f).split('/').pop());
+                }
+                if (DIRS.some(d => fileNames[d].length)) {
+                    src = 'manifest';
+                    console.log('[Audio] discovery: audio/manifest.json');
+                }
+            }
+        } catch (e) { /* no manifest - try directory listing */ }
+
+        // 2) directory listing
+        if (src === 'none') {
+            for (const dir of DIRS) {
+                try {
+                    const resp = await fetch(dir);
+                    if (resp.ok) {
+                        const html = await resp.text();
+                        fileNames[dir] = [...html.matchAll(/<a href="\.\/([^"]+\.(?:mp3|wav|ogg))"/gi)]
+                            .map(m => decodeURIComponent(m[1]));
+                    }
+                } catch (e) { /* dir not listable - try next */ }
+            }
+            if (DIRS.some(d => fileNames[d].length)) {
+                src = 'listing';
+                console.log('[Audio] discovery: directory listing');
+            }
+        }
+
+        // 3) turn discovered file names into rotation groups
+        if (src !== 'none') {
+            for (const dir of DIRS) {
+                for (const f of fileNames[dir]) {
+                    const base = f.replace(/\.(mp3|wav|ogg)$/i, '');
+                    const takeMatch = base.match(/^(\d+)_(.+)_(\d+)$/);
+                    if (dir.includes('weapons') && takeMatch) {
+                        // NN_Name_Take -> weapon rotation group
+                        const key = resolveKey(takeMatch[2]);
+                        this.soundCat[key] = 'weapons';
+                        (groups[key] = groups[key] || []).push({ take: parseInt(takeMatch[3], 10), file: dir + f });
+                    } else {
+                        // Plain key (sfx or single-file weapon)
+                        const key = resolveKey(base);
+                        this.soundCat[key] = dir.includes('weapons') ? 'weapons' : 'sfx';
+                        (groups[key] = groups[key] || []).push({ take: 1, file: dir + f });
+                    }
                 }
             }
         }
 
-        // Fallback: directory listing unavailable -> use known recordings directly
+        // Fallback: nothing discoverable -> use the known recordings directly
         if (Object.keys(groups).length === 0) {
+            console.log('[Audio] discovery: built-in fallback list');
             const FALLBACK = {
                 'glock': ['01_Glock_17_1.mp3', '01_Glock_17_2.mp3', '01_Glock_17_3.mp3'],
                 'desert_eagle': ['02_Desert_Eagle_1.mp3', '02_Desert_Eagle_2.mp3', '02_Desert_Eagle_3.mp3'],
@@ -172,8 +209,9 @@ const AudioEngine = {
         ];
         const missing = EXPECTED.filter(k => !this.loadedSounds[k] && !this.variantGroups[k]);
         if (missing.length) {
-            console.warn(`[Audio] ${missing.length} SFX have no recording (silent by design, synth off): ${missing.join(', ')}`);
-            console.warn(`[Audio] Record them as audio/sfx/<name>.mp3 - they auto-load, zero code edits.`);
+            const synthCovered = missing.filter(k => this.synth && this.synth[k]).length;
+            console.warn(`[Audio] ${missing.length} SFX have no recording -> ${synthCovered} covered by Aura's synth fallback, ${missing.length - synthCovered} silent.`);
+            console.warn(`[Audio] Drop recordings in audio/sfx/<name>.mp3 (see audio/sfx/RECORD_THESE.md) - they auto-load and override the synth.`);
         }
 
         // startGame() plays wave_start before decode finishes -> replay it now if we missed it

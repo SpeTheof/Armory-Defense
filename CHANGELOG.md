@@ -1,5 +1,19 @@
 # Changelog
 
+## v1.0.1 — 2026-10-19
+
+Playable straight from the git URL (GitHub Pages).
+
+### Hosting
+- **3-tier audio discovery:** `audio/manifest.json` → directory listing → built-in fallback.
+  Static hosts (GitHub Pages) have no directory listings, so the recordings couldn't be
+  auto-discovered before — now they load everywhere.
+- Added `tools/make-manifest.js` — run `node tools/make-manifest.js` after adding or removing
+  a recording to refresh the manifest.
+- Enabled GitHub Pages deploy from `main` → https://speetheof.github.io/Armory-Defense/
+- Fixed the audio diagnostic message (it claimed the unrecorded SFX were silent; they now use
+  Aura's synth fallbacks).
+
 ## v1.0.0 — 2026-10-19
 
 First release. A collab: **SpeTheof** (design, all 35 weapon recordings) × **Aura** (code, SFX synthesis).
