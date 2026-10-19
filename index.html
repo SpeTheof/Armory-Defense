@@ -1,0 +1,949 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Armory Defense v1.0</title>
+    <style>
+        :root {
+            --primary: #ff6b35;
+            --primary-dark: #cc5522;
+            --secondary: #00ff88;
+            --bg-dark: #0a0e0a;
+            --bg-panel: #111a11;
+            --bg-card: #1a2419;
+            --border: #2a3a2a;
+            --text: #e0e0e0;
+            --text-dim: #777;
+            --gold: #ffd700;
+            --danger: #ff4444;
+            --info: #00ccff;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            background: var(--bg-dark);
+            font-family: 'Courier New', monospace;
+            color: var(--text);
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        /* ==================== MAIN MENU ==================== */
+        #mainMenu {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: linear-gradient(135deg, #0a0e0a 0%, #0f1a0f 50%, #0a0e0a 100%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+
+        #mainMenu::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background:
+                repeating-linear-gradient(0deg, transparent, transparent 50px, rgba(255,107,53,0.02) 50px, rgba(255,107,53,0.02) 51px),
+                repeating-linear-gradient(90deg, transparent, transparent 50px, rgba(255,107,53,0.02) 50px, rgba(255,107,53,0.02) 51px);
+            pointer-events: none;
+        }
+
+        .game-title {
+            font-size: 56px;
+            color: var(--primary);
+            text-shadow: 0 0 30px rgba(255,107,53,0.5), 0 4px 8px rgba(0,0,0,0.8);
+            letter-spacing: 8px;
+            text-transform: uppercase;
+            margin-bottom: 5px;
+            position: relative;
+        }
+
+        .game-title .gun-icon { font-size: 48px; }
+
+        .game-subtitle {
+            font-size: 14px;
+            color: var(--text-dim);
+            letter-spacing: 4px;
+            margin-bottom: 40px;
+        }
+
+        .section-label {
+            font-size: 12px;
+            color: var(--primary);
+            letter-spacing: 3px;
+            margin-bottom: 15px;
+            padding: 5px 20px;
+            border: 1px solid var(--border);
+            background: rgba(255,107,53,0.05);
+        }
+
+        .map-selector {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .map-card {
+            width: 200px;
+            background: var(--bg-card);
+            border: 2px solid var(--border);
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-align: center;
+            padding: 10px;
+        }
+
+        .map-card:hover {
+            border-color: var(--primary);
+            transform: translateY(-5px);
+            box-shadow: 0 8px 25px rgba(255,107,53,0.3);
+        }
+
+        .map-card.selected {
+            border-color: var(--secondary);
+            box-shadow: 0 0 25px rgba(0,255,136,0.4);
+            transform: translateY(-5px);
+        }
+
+        .map-preview {
+            width: 180px;
+            height: 120px;
+            background: #111;
+            margin-bottom: 8px;
+            display: block;
+        }
+
+        .map-name {
+            font-size: 13px;
+            font-weight: bold;
+            color: var(--text);
+            letter-spacing: 1px;
+        }
+
+        .map-diff {
+            font-size: 10px;
+            color: var(--gold);
+            margin-top: 4px;
+        }
+
+        .start-btn {
+            padding: 15px 50px;
+            font-size: 18px;
+            font-family: 'Courier New', monospace;
+            font-weight: bold;
+            background: linear-gradient(135deg, var(--primary), #ff8c42);
+            color: #000;
+            border: none;
+            cursor: pointer;
+            letter-spacing: 3px;
+            text-transform: uppercase;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 20px rgba(255,107,53,0.4);
+        }
+
+        .start-btn:hover {
+            transform: scale(1.05);
+            box-shadow: 0 6px 30px rgba(255,107,53,0.6);
+        }
+
+        .start-btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        /* ==================== GAME SCREEN ==================== */
+        #gameScreen { display: none; }
+
+        /* TOP BAR */
+        #topBar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: linear-gradient(135deg, var(--bg-panel) 0%, #0d150d 100%);
+            border: 1px solid var(--border);
+            border-bottom: 2px solid var(--primary);
+            padding: 6px 15px;
+            width: 1270px;
+            margin-bottom: 8px;
+        }
+
+        .bar-title {
+            color: var(--primary);
+            font-size: 14px;
+            font-weight: bold;
+            letter-spacing: 2px;
+            white-space: nowrap;
+        }
+
+        .stats-bar {
+            display: flex;
+            gap: 10px;
+        }
+
+        .stat-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 3px 12px;
+            background: rgba(0,0,0,0.4);
+            border: 1px solid var(--border);
+            min-width: 75px;
+        }
+
+        .stat-item .stat-label {
+            font-size: 8px;
+            color: var(--text-dim);
+            letter-spacing: 1px;
+        }
+
+        .stat-item .stat-value {
+            font-size: 18px;
+            font-weight: bold;
+        }
+
+        .gold-stat .stat-value { color: var(--gold); }
+        .lives-stat .stat-value { color: var(--danger); }
+        .wave-stat .stat-value { color: var(--info); }
+        .score-stat .stat-value { color: var(--primary); }
+
+        .controls-bar {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .ctrl-btn {
+            padding: 6px 14px;
+            font-family: 'Courier New', monospace;
+            font-size: 11px;
+            font-weight: bold;
+            border: 1px solid var(--border);
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .ctrl-btn.start-wave {
+            background: var(--primary);
+            color: #000;
+            border-color: var(--primary);
+        }
+
+        .ctrl-btn.start-wave:hover:not(:disabled) {
+            background: #ff8c42;
+            box-shadow: 0 0 10px rgba(255,107,53,0.5);
+        }
+
+        .ctrl-btn.start-wave:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+
+        .ctrl-btn.pause-btn {
+            background: rgba(255,107,53,0.2);
+            color: var(--primary);
+        }
+
+        .ctrl-btn.pause-btn:hover { background: rgba(255,107,53,0.4); }
+
+        .ctrl-btn.gear-btn {
+            background: rgba(255,215,0,0.12);
+            color: var(--gold);
+            border: 1px solid rgba(255,215,0,0.4);
+            font-size: 15px;
+            padding: 5px 9px;
+            line-height: 1;
+        }
+
+        .ctrl-btn.gear-btn:hover {
+            background: rgba(255,215,0,0.3);
+            box-shadow: 0 0 12px rgba(255,215,0,0.35);
+        }
+
+        .speed-controls {
+            display: flex;
+            border: 1px solid var(--border);
+        }
+
+        .speed-btn {
+            padding: 5px 10px;
+            background: rgba(0,0,0,0.5);
+            color: var(--text-dim);
+            border: none;
+            font-family: 'Courier New', monospace;
+            font-size: 10px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .speed-btn.active {
+            background: var(--primary);
+            color: #000;
+        }
+
+        .speed-btn:hover:not(.active) { color: var(--text); }
+
+        /* GAME AREA */
+        #gameArea {
+            display: flex;
+            gap: 10px;
+        }
+
+        #gameCanvas {
+            border: 2px solid var(--border);
+            cursor: crosshair;
+            display: block;
+        }
+
+        /* TOWER PANEL */
+        #towerPanel {
+            width: 250px;
+            background: linear-gradient(180deg, var(--bg-panel) 0%, #0d150d 100%);
+            border: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            max-height: 654px;
+        }
+
+        .panel-header {
+            color: var(--primary);
+            font-size: 13px;
+            font-weight: bold;
+            letter-spacing: 2px;
+            text-align: center;
+            padding: 8px;
+            border-bottom: 2px solid var(--primary);
+            background: rgba(255,107,53,0.05);
+        }
+
+        #towerButtons {
+            flex: 1;
+            overflow-y: auto;
+            scrollbar-width: thin;
+            scrollbar-color: var(--primary) transparent;
+        }
+
+        #towerButtons::-webkit-scrollbar { width: 4px; }
+        #towerButtons::-webkit-scrollbar-thumb { background: var(--primary); }
+
+        .tower-category {
+            font-size: 9px;
+            color: var(--text-dim);
+            letter-spacing: 2px;
+            padding: 6px 10px 3px;
+            border-bottom: 1px solid var(--border);
+            background: rgba(0,0,0,0.3);
+            position: sticky;
+            top: 0;
+            z-index: 5;
+        }
+
+        .tower-btn {
+            width: 100%;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 7px 10px;
+            background: transparent;
+            border: none;
+            border-bottom: 1px solid rgba(255,255,255,0.03);
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-align: left;
+            color: var(--text);
+            font-family: 'Courier New', monospace;
+        }
+
+        .tower-btn:hover {
+            background: rgba(255,107,53,0.1);
+            padding-left: 14px;
+        }
+
+        .tower-btn.selected {
+            background: rgba(0,255,136,0.1);
+            border-left: 3px solid var(--secondary);
+            padding-left: 11px;
+        }
+
+        .tower-btn.cant-afford { opacity: 0.35; }
+
+        .tower-btn .t-icon {
+            font-size: 20px;
+            width: 30px;
+            text-align: center;
+            flex-shrink: 0;
+        }
+
+        .tower-btn .t-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .tower-btn .t-name {
+            font-size: 11px;
+            font-weight: bold;
+            white-space: nowrap;
+        }
+
+        .tower-btn .t-type {
+            font-size: 8px;
+            color: var(--text-dim);
+            letter-spacing: 0.5px;
+        }
+
+        .tower-btn .t-cost {
+            font-size: 12px;
+            color: var(--gold);
+            font-weight: bold;
+            white-space: nowrap;
+        }
+
+        /* UPGRADE PANEL */
+        #upgradePanel {
+            border-top: 2px solid var(--secondary);
+            background: rgba(0,255,136,0.03);
+            padding: 10px;
+            display: none;
+        }
+
+        #upgradePanel .up-header {
+            font-size: 11px;
+            color: var(--secondary);
+            letter-spacing: 2px;
+            margin-bottom: 8px;
+            text-align: center;
+        }
+
+        #upgradePanel .tower-stats {
+            font-size: 10px;
+            margin-bottom: 8px;
+            line-height: 1.6;
+        }
+
+        #upgradePanel .tower-stats .stat-row {
+            display: flex;
+            justify-content: space-between;
+        }
+
+        #upgradePanel .tower-stats .stat-row .label { color: var(--text-dim); }
+        #upgradePanel .tower-stats .stat-row .val { color: var(--text); font-weight: bold; }
+        #upgradePanel .tower-stats .stat-row .val.dps { color: var(--gold); }
+        #upgradePanel .tower-stats .stat-row .val .up { color: var(--secondary); font-weight: bold; }
+        #upgradePanel .tower-stats .stat-row .val .dim { color: var(--text-dim); font-weight: normal; font-size: 9px; }
+
+        #upgradePanel .up-next {
+            margin-top: 8px;
+            padding-top: 6px;
+            border-top: 1px dashed rgba(255,215,0,0.35);
+        }
+        #upgradePanel .up-next .next-title {
+            color: var(--gold);
+            font-size: 10px;
+            letter-spacing: 1px;
+            font-weight: bold;
+            margin-bottom: 4px;
+        }
+        #upgradePanel .eff-line {
+            margin-top: 6px;
+            font-size: 9px;
+            color: var(--text-dim);
+            letter-spacing: 0.5px;
+            text-align: center;
+        }
+
+        #upgradePanel .up-btn {
+            width: 100%;
+            padding: 8px;
+            margin-top: 5px;
+            font-family: 'Courier New', monospace;
+            font-size: 11px;
+            font-weight: bold;
+            border: 1px solid;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            letter-spacing: 1px;
+        }
+
+        #upgradePanel .up-btn.upgrade {
+            background: rgba(0,255,136,0.15);
+            color: var(--secondary);
+            border-color: var(--secondary);
+        }
+
+        #upgradePanel .up-btn.upgrade:hover:not(:disabled) {
+            background: rgba(0,255,136,0.3);
+        }
+
+        #upgradePanel .up-btn.upgrade:disabled { opacity: 0.3; cursor: not-allowed; }
+
+        #upgradePanel .up-btn.sell {
+            background: rgba(255,68,68,0.15);
+            color: var(--danger);
+            border-color: var(--danger);
+        }
+
+        #upgradePanel .up-btn.sell:hover { background: rgba(255,68,68,0.3); }
+
+        /* ==================== ARMORY LAB ==================== */
+        #armoryLab {
+            border-top: 2px solid var(--gold);
+            background: rgba(255,215,0,0.04);
+            padding: 8px 10px;
+        }
+
+        #armoryLab .lab-header {
+            font-size: 11px;
+            color: var(--gold);
+            letter-spacing: 2px;
+            margin-bottom: 6px;
+            text-align: center;
+        }
+
+        #armoryLab .lab-btn {
+            width: 100%;
+            padding: 7px;
+            margin-top: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 10px;
+            font-weight: bold;
+            border: 1px solid var(--gold);
+            background: rgba(255,215,0,0.1);
+            color: var(--gold);
+            cursor: pointer;
+            transition: all 0.2s ease;
+            letter-spacing: 1px;
+        }
+
+        #armoryLab .lab-btn:hover:not(:disabled) {
+            background: rgba(255,215,0,0.25);
+        }
+
+        #armoryLab .lab-btn.cant-afford { opacity: 0.35; }
+
+        #armoryLab .lab-btn.unlocked {
+            background: rgba(0,255,136,0.1);
+            color: var(--secondary);
+            border-color: var(--secondary);
+            opacity: 0.7;
+            cursor: default;
+        }
+
+        #armoryLab .lab-btn.unlocked:hover { background: rgba(0,255,136,0.1); }
+
+        /* ==================== MODALS ==================== */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.85);
+            z-index: 5000;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .modal-box {
+            background: linear-gradient(135deg, var(--bg-panel), #0d150d);
+            border: 3px solid var(--primary);
+            padding: 40px 50px;
+            text-align: center;
+            min-width: 400px;
+        }
+
+        .modal-box h2 {
+            font-size: 32px;
+            margin-bottom: 20px;
+            letter-spacing: 3px;
+        }
+
+        .modal-box.game-over h2 { color: var(--danger); border-bottom: 2px solid var(--danger); padding-bottom: 10px; }
+        .modal-box.victory h2 { color: var(--gold); border-bottom: 2px solid var(--gold); padding-bottom: 10px; }
+
+        .modal-stats {
+            font-size: 13px;
+            line-height: 2;
+            margin-bottom: 25px;
+            color: var(--text);
+        }
+
+        .modal-stats span { color: var(--gold); font-weight: bold; }
+
+        .modal-btn {
+            padding: 12px 35px;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            font-weight: bold;
+            border: 2px solid var(--primary);
+            background: rgba(255,107,53,0.2);
+            color: var(--primary);
+            cursor: pointer;
+            letter-spacing: 2px;
+            transition: all 0.3s ease;
+        }
+
+        .modal-btn:hover {
+            background: var(--primary);
+            color: #000;
+            box-shadow: 0 0 20px rgba(255,107,53,0.5);
+        }
+
+        /* ==================== SETTINGS MODAL ==================== */
+        .modal-box.settings {
+            min-width: 480px;
+            padding: 28px 38px;
+            text-align: left;
+        }
+
+        .modal-box.settings h2 {
+            text-align: center;
+            font-size: 26px;
+            color: var(--primary);
+            border-bottom: 2px solid var(--primary);
+            padding-bottom: 10px;
+            margin-bottom: 18px;
+        }
+
+        .settings-section { margin-bottom: 20px; }
+
+        .settings-section .section-title {
+            color: var(--gold);
+            font-size: 12px;
+            font-weight: bold;
+            letter-spacing: 2px;
+            margin-bottom: 10px;
+        }
+
+        .vol-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 9px;
+        }
+
+        .vol-label {
+            width: 105px;
+            font-size: 10px;
+            color: var(--text-dim);
+            letter-spacing: 1px;
+            flex-shrink: 0;
+        }
+
+        .vol-val {
+            width: 44px;
+            font-size: 11px;
+            color: var(--gold);
+            font-weight: bold;
+            text-align: right;
+            flex-shrink: 0;
+        }
+
+        input.vol-bar {
+            flex: 1;
+            -webkit-appearance: none;
+            appearance: none;
+            height: 6px;
+            background: linear-gradient(90deg, var(--primary), var(--gold));
+            border-radius: 3px;
+            outline: none;
+            cursor: pointer;
+        }
+
+        input.vol-bar::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: var(--gold);
+            border: 2px solid #000;
+            box-shadow: 0 0 8px rgba(255,215,0,0.6);
+            cursor: pointer;
+        }
+
+        input.vol-bar::-moz-range-thumb {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: var(--gold);
+            border: 2px solid #000;
+            box-shadow: 0 0 8px rgba(255,215,0,0.6);
+            cursor: pointer;
+        }
+
+        .vol-btns { display: flex; gap: 8px; margin-top: 12px; }
+
+        .set-btn {
+            flex: 1;
+            padding: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 10px;
+            font-weight: bold;
+            letter-spacing: 1px;
+            border: 1px solid var(--primary);
+            background: rgba(255,107,53,0.15);
+            color: var(--primary);
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .set-btn:hover { background: rgba(255,107,53,0.35); }
+
+        .loaded-line {
+            margin-top: 10px;
+            font-size: 10px;
+            color: var(--text-dim);
+            text-align: center;
+            letter-spacing: 1px;
+        }
+
+        .credit-row {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            font-size: 11px;
+            line-height: 1.9;
+            border-bottom: 1px dashed rgba(255,255,255,0.08);
+            padding: 2px 0;
+        }
+
+        .credit-role { color: var(--text-dim); letter-spacing: 1px; white-space: nowrap; }
+        .credit-name { color: var(--text); text-align: right; }
+
+        /* Aura's tag — purple mage energy */
+        .credit-name.aura {
+            color: #b388ff;
+            text-shadow: 0 0 8px rgba(179,136,255,0.55);
+        }
+
+        .credit-links {
+            margin-top: 10px;
+            font-size: 10px;
+            color: var(--secondary);
+            text-align: center;
+            letter-spacing: 1px;
+        }
+
+        .credit-footer {
+            margin-top: 6px;
+            font-size: 10px;
+            color: var(--text-dim);
+            text-align: center;
+        }
+
+        .modal-box.settings .modal-btn {
+            display: block;
+            margin: 14px auto 0;
+        }
+
+        /* NOTIFICATIONS */
+        #notification {
+            position: fixed;
+            top: 15px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 10px 25px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            font-weight: bold;
+            z-index: 6000;
+            display: none;
+            letter-spacing: 1px;
+            transition: opacity 0.3s ease;
+        }
+
+        #notification.success { background: rgba(0,255,136,0.9); color: #000; }
+        #notification.error { background: rgba(255,68,68,0.9); color: #fff; }
+        #notification.warning { background: rgba(255,170,0,0.9); color: #000; }
+
+        /* HINT BAR */
+        #hintBar {
+            width: 1270px;
+            padding: 5px 15px;
+            font-size: 10px;
+            color: var(--text-dim);
+            letter-spacing: 1px;
+            display: flex;
+            justify-content: space-between;
+            border-top: 1px solid var(--border);
+        }
+
+        #hintBar .hint { display: flex; gap: 15px; }
+        #hintBar .hint span { color: var(--text); }
+    </style>
+</head>
+<body>
+
+    <!-- ==================== MAIN MENU ==================== -->
+    <div id="mainMenu">
+        <div class="game-title"><span class="gun-icon">🔫</span> ARMORY DEFENSE</div>
+        <div class="game-subtitle">VIBE CODED BY AURA &amp; SPE</div>
+
+        <div class="section-label">SELECT OPERATION AREA</div>
+        <div class="map-selector">
+            <div class="map-card selected" data-map="desert">
+                <canvas class="map-preview" width="180" height="120"></canvas>
+                <div class="map-name">🏜️ DESERT OUTPOST</div>
+                <div class="map-diff">★☆☆ EASY</div>
+            </div>
+            <div class="map-card" data-map="urban">
+                <canvas class="map-preview" width="180" height="120"></canvas>
+                <div class="map-name">🏙️ URBAN WARFARE</div>
+                <div class="map-diff">★★☆ MEDIUM</div>
+            </div>
+            <div class="map-card" data-map="arctic">
+                <canvas class="map-preview" width="180" height="120"></canvas>
+                <div class="map-name">❄️ ARCTIC BASE</div>
+                <div class="map-diff">★★★ HARD</div>
+            </div>
+        </div>
+
+        <button class="start-btn" id="startBtn">⚔️ START MISSION</button>
+    </div>
+
+    <!-- ==================== GAME SCREEN ==================== -->
+    <div id="gameScreen">
+        <div id="topBar">
+            <div class="bar-title">🔫 ARMORY DEFENSE</div>
+            <div class="stats-bar">
+                <div class="stat-item gold-stat">
+                    <span class="stat-label">GOLD</span>
+                    <span class="stat-value" id="goldDisplay">500</span>
+                </div>
+                <div class="stat-item lives-stat">
+                    <span class="stat-label">LIVES</span>
+                    <span class="stat-value" id="livesDisplay">20</span>
+                </div>
+                <div class="stat-item wave-stat">
+                    <span class="stat-label">WAVE</span>
+                    <span class="stat-value" id="waveDisplay">0/50</span>
+                </div>
+                <div class="stat-item score-stat">
+                    <span class="stat-label">SCORE</span>
+                    <span class="stat-value" id="scoreDisplay">0</span>
+                </div>
+            </div>
+            <div class="controls-bar">
+                <button class="ctrl-btn start-wave" id="startWaveBtn">▶ WAVE</button>
+                <div class="speed-controls">
+                    <button class="speed-btn active" data-speed="1">1×</button>
+                    <button class="speed-btn" data-speed="2">2×</button>
+                    <button class="speed-btn" data-speed="3">3×</button>
+                </div>
+                <button class="ctrl-btn pause-btn" id="pauseBtn">⏸</button>
+                <button class="ctrl-btn gear-btn" id="settingsBtn" title="Settings (sound + credits)">⚙</button>
+            </div>
+        </div>
+
+        <div id="gameArea">
+            <canvas id="gameCanvas" width="1000" height="650"></canvas>
+            <div id="towerPanel">
+                <div class="panel-header">🔫 ARMORY</div>
+                <div id="towerButtons"></div>
+                <div id="armoryLab">
+                    <div class="lab-header">⚙ ARMORY LAB</div>
+                    <button class="lab-btn" id="unlock4Btn">🔓 TIER 4 — ALL GUNS ★4 ($10,000)</button>
+                    <button class="lab-btn" id="unlock5Btn">🔒 TIER 5 — REQUIRES TIER 4</button>
+                </div>
+                <div id="upgradePanel">
+                    <div class="up-header" id="upTowerName">—</div>
+                    <div class="tower-stats" id="upTowerStats"></div>
+                    <button class="up-btn upgrade" id="upgradeBtn">⬆ UPGRADE</button>
+                    <button class="up-btn sell" id="sellBtn">💰 SELL</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="hintBar">
+            <div class="hint">
+                <span>LMB</span> Place/Select &nbsp;
+                <span>RMB</span> Deselect &nbsp;
+                <span>ESC</span> Cancel &nbsp;
+                <span>SPACE</span> Next Wave &nbsp;
+                <span>U</span> Upgrade &nbsp;
+                <span>P</span> Pause &nbsp;
+                <span>1/2/3</span> Speed
+            </div>
+            <div class="hint">
+                <span id="fpsDisplay">60 FPS</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== GAME OVER ==================== -->
+    <div class="modal-overlay" id="gameOverModal">
+        <div class="modal-box game-over">
+            <h2>💀 MISSION FAILED</h2>
+            <div class="modal-stats" id="gameOverStats"></div>
+            <button class="modal-btn" onclick="location.reload()">🔄 RETRY</button>
+        </div>
+    </div>
+
+    <!-- ==================== VICTORY ==================== -->
+    <div class="modal-overlay" id="victoryModal">
+        <div class="modal-box victory">
+            <h2>🏆 MISSION COMPLETE!</h2>
+            <div class="modal-stats" id="victoryStats"></div>
+            <button class="modal-btn" onclick="location.reload()">🔄 PLAY AGAIN</button>
+        </div>
+    </div>
+
+    <!-- ==================== SETTINGS MODAL (gear) ==================== -->
+    <div class="modal-overlay" id="settingsModal">
+        <div class="modal-box settings">
+            <h2>⚙ SETTINGS</h2>
+
+            <div class="settings-section">
+                <div class="section-title">🔊 SOUND</div>
+                <div class="vol-row">
+                    <span class="vol-label">MASTER</span>
+                    <input type="range" id="volMaster" class="vol-bar" min="0" max="100" value="100">
+                    <span class="vol-val" id="volMasterVal">100%</span>
+                </div>
+                <div class="vol-row">
+                    <span class="vol-label">🔫 WEAPONS</span>
+                    <input type="range" id="volWeapons" class="vol-bar" min="0" max="100" value="80">
+                    <span class="vol-val" id="volWeaponsVal">80%</span>
+                </div>
+                <div class="vol-row">
+                    <span class="vol-label">🎛 EFFECTS</span>
+                    <input type="range" id="volEffects" class="vol-bar" min="0" max="100" value="80">
+                    <span class="vol-val" id="volEffectsVal">80%</span>
+                </div>
+                <div class="vol-btns">
+                    <button class="set-btn" id="muteBtn">🔊 SOUND ON — CLICK TO MUTE</button>
+                    <button class="set-btn" id="testSoundBtn">🔫 TEST A GUN</button>
+                </div>
+                <div class="loaded-line">📼 <span id="soundsLoadedCount">0</span> recorded sounds loaded</div>
+            </div>
+
+            <div class="settings-section">
+                <div class="section-title">⭐ CREDITS</div>
+                <div class="credit-row"><span class="credit-role">ALL WEAPON SOUNDS</span><span class="credit-name">SpeTheof 🎤 (every gun is his actual mouth)</span></div>
+                <div class="credit-row"><span class="credit-role">GAME DESIGN & VISION</span><span class="credit-name">SpeTheof</span></div>
+                <div class="credit-row"><span class="credit-role">CODE & ENGINE</span><span class="credit-name">Aura 💜 (vibe coded, no cap)</span></div>
+                <div class="credit-row"><span class="credit-role">SOUND DESIGN (SFX)</span><span class="credit-name aura">Aura 🔮 oscillator sorcery — zero samples</span></div>
+                <div class="credit-row"><span class="credit-role">TECH</span><span class="credit-name">HTML5 Canvas + Web Audio API — zero libraries</span></div>
+                <div class="credit-row"><span class="credit-role">ARSENAL</span><span class="credit-name">15 guns · 35 takes · 3 maps · 50 waves</span></div>
+                <div class="credit-links">youtube.com/SpeTheof · github.com/SpeTheof</div>
+                <div class="credit-footer">A COLLAB — SpeTheof 🎤 × Aura 🔮 · vibe coded, no cap</div>
+            </div>
+
+            <button class="modal-btn" id="settingsClose">CLOSE</button>
+        </div>
+    </div>
+
+    <!-- ==================== NOTIFICATION ==================== -->
+    <div id="notification"></div>
+
+    <script src="Game.js"></script>
+</body>
+</html>

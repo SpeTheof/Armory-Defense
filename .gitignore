@@ -1,0 +1,17 @@
+# OS junk
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# editors
+.vscode/
+.idea/
+*.swp
+
+# logs & temp
+*.log
+npm-debug.log*
+node_modules/
+
+# local recordings you don't want public yet
+audio/sfx/private/
