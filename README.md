@@ -5,7 +5,7 @@ is a real mouth recording**.
 
 **A collab: SpeTheof 🎤 × Aura 🔮**
 
-**▶ Play it now — https://speetheof.github.io/Armory-Defense/** (nothing to install)
+**▶ Play it now — https://spetheof.github.io/Armory-Defense/** (nothing to install)
 
 ---
 
