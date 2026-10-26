@@ -1,5 +1,28 @@
 # Changelog
 
+## v1.1.1 — 2026-10-26
+
+### High scores & layout
+- **Local top-10 high-score board.** Each finished run (win or loss) is saved to
+  localStorage with score, mode, map, wave and kills. Open it from the main menu with
+  **🏆 HIGH SCORES**.
+- **Difficulty score multipliers:** RECRUIT ×1.0, VETERAN ×1.5, HARDCORE ×2.0 — a
+  Hardcore win is worth more than a Recruit win.
+- Main menu shows **BEST <mode>** for the selected difficulty (score · wave · map).
+- New high score = **🏆 NEW HIGH SCORE!** banner on the result screen; other board
+  entries show their rank.
+- Score formatting with thousands separators; top 10 kept, sorted by score then wave.
+- **Fit-to-screen scaling** for the menu and game screen (1280×720 laptops and browser
+  zoom no longer clip the bottom of the UI). Modal boxes cap at 94vw/92vh.
+- Menu spacing tightened so the difficulty selector + best line + high-score button fit
+  a 720p screen without scaling.
+
+### Verified
+- High-score record/sort/trim: 10-entry cap, duplicate-record guard, per-mode best line.
+- Score multipliers: 100-reward kill gives 200 / 300 / 400 on Recruit / Veteran / Hardcore.
+- Empty board state, new-high banner, rank banner, and modal rendering.
+- Menu content 698×581 (fits 720p); game screen 1270×739 scales to 0.96 at 720p.
+
 ## v1.1.0 — 2026-10-26
 
 The "make it hurt (but not your ears)" update.

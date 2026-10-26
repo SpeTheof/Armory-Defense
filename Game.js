@@ -1,5 +1,5 @@
 // ============================================================
-// ARMORY DEFENSE v1.1.0 - Complete Game Engine
+// ARMORY DEFENSE v1.1.1 - Complete Game Engine
 // Vibe Coded by Aura & Spe 🔫
 // ============================================================
 
@@ -704,11 +704,13 @@ const CANVAS_W = 1000, CANVAS_H = 650;
 // Hardcore = fewer lives, less seed money, wave 50 is a war crime.
 // ============================================================
 const DIFFICULTIES = {
-    recruit:  { label: 'RECRUIT',  lives: 20, gold: 1500, hpLin: 0.08, hpLate: 0.05, blurb: 'Classic balance' },
-    veteran:  { label: 'VETERAN',  lives: 20, gold: 1500, hpLin: 0.10, hpLate: 0.16, blurb: 'Sharper late game' },
-    hardcore: { label: 'HARDCORE', lives: 15, gold: 1250, hpLin: 0.10, hpLate: 0.22, blurb: 'No mercy' },
+    recruit:  { label: 'RECRUIT',  lives: 20, gold: 1500, hpLin: 0.08, hpLate: 0.05, scoreMult: 1.0, blurb: 'Classic balance' },
+    veteran:  { label: 'VETERAN',  lives: 20, gold: 1500, hpLin: 0.10, hpLate: 0.16, scoreMult: 1.5, blurb: 'Sharper late game' },
+    hardcore: { label: 'HARDCORE', lives: 15, gold: 1250, hpLin: 0.10, hpLate: 0.22, scoreMult: 2.0, blurb: 'No mercy' },
 };
 const DEFAULT_DIFFICULTY = 'veteran';
+const SCORE_KEY = 'armory_scores';
+const MAX_SCORES = 10;
 
 const TOWER_CATEGORIES = [
     { name: 'SIDEARMS', weapons: ['glock', 'desert_eagle'] },
@@ -1007,6 +1009,7 @@ const game = {
     gold: 1500,
     lives: 20,
     score: 0,
+    scoreRecorded: false,
     wave: 0,
     maxWaves: 50,
     speed: 1,
@@ -1059,6 +1062,7 @@ document.addEventListener('DOMContentLoaded', () => {
         game.difficulty = key;
         diffCards.forEach(c => c.classList.toggle('selected', c.dataset.diff === key));
         try { localStorage.setItem('armory_difficulty', key); } catch (e) { /* private mode */ }
+        updateBestLine();
     };
     diffCards.forEach(card => card.addEventListener('click', () => selectDifficulty(card.dataset.diff)));
     try {
@@ -1069,6 +1073,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Draw map previews on menu
     drawMapPreviews();
+    fitLayout();
+    window.addEventListener('resize', fitLayout);
 
     // Start button
     document.getElementById('startBtn').addEventListener('click', startGame);
@@ -1106,6 +1112,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Settings (gear menu: sound bars + credits)
     wireSettings();
+
+    // High-score board
+    document.getElementById('scoresBtn').addEventListener('click', openScores);
+    document.getElementById('scoresClose').addEventListener('click', closeScores);
+    document.getElementById('scoresModal').addEventListener('click', (e) => {
+        if (e.target.id === 'scoresModal') closeScores();
+    });
 
     // Start render loop for menu
     requestAnimationFrame(menuLoop);
@@ -1198,6 +1211,7 @@ function startGame() {
     game.gold = diff.gold;
     game.lives = diff.lives;
     game.score = 0;
+    game.scoreRecorded = false;
     game.wave = 0;
     game.kills = 0;
     game.speed = 1;
@@ -1215,6 +1229,7 @@ function startGame() {
 
     document.getElementById('mainMenu').style.display = 'none';
     document.getElementById('gameScreen').style.display = 'block';
+    fitLayout();
     const modeEl = document.getElementById('difficultyDisplay');
     if (modeEl) modeEl.textContent = diff.label;
 
@@ -1234,8 +1249,32 @@ function menuLoop(ts) {
     requestAnimationFrame(menuLoop);
 }
 
-function drawMapPreviews() {
-    document.querySelectorAll('.map-card').forEach(card => {
+// ============================================================
+// FIT TO SCREEN (1280x720 laptops / browser zoom)
+// ============================================================
+function fitLayout() {
+    const menu = document.getElementById('mainMenu');
+    if (menu && getComputedStyle(menu).display !== 'none') {
+        const inner = menu.querySelector('.menu-inner');
+        if (inner) {
+            inner.style.transform = '';
+            const s = Math.min(1,
+                (window.innerWidth - 16) / Math.max(1, inner.scrollWidth),
+                (window.innerHeight - 16) / Math.max(1, inner.scrollHeight));
+            inner.style.transform = s < 0.999 ? `scale(${s.toFixed(4)})` : '';
+        }
+    }
+    const gs = document.getElementById('gameScreen');
+    if (gs && getComputedStyle(gs).display !== 'none') {
+        gs.style.transform = '';
+        const s = Math.min(1,
+            (window.innerWidth - 8) / Math.max(1, gs.scrollWidth),
+            (window.innerHeight - 8) / Math.max(1, gs.scrollHeight));
+        gs.style.transform = s < 0.999 ? `scale(${s.toFixed(4)})` : '';
+    }
+}
+
+function drawMapPreviews() {    document.querySelectorAll('.map-card').forEach(card => {
         const mapKey = card.dataset.map;
         const previewCanvas = card.querySelector('.map-preview');
         if (!previewCanvas || !MAPS[mapKey]) return;
@@ -1550,6 +1589,10 @@ function onKeyDown(e) {
         if (e.key === 'Escape') closeSettings();
         return;
     }
+    if (document.getElementById('scoresModal').style.display === 'flex') {
+        if (e.key === 'Escape') closeScores();
+        return;
+    }
     if (game.state !== 'playing') return;
     if (e.key === 'Escape') deselectAll();
     if (e.key === ' ' || e.code === 'Space') {
@@ -1809,7 +1852,7 @@ function updateEnemies(dt) {
         if (e.hp <= 0) {
             // Death
             game.gold += e.reward;
-            game.score += e.reward * 2;
+            game.score += Math.round(e.reward * 2 * (DIFFICULTIES[game.difficulty] || DIFFICULTIES[DEFAULT_DIFFICULTY]).scoreMult);
             game.kills++;
             A.play(e.isBoss ? 'explosion_large' : 'enemy_death', e.isBoss ? 1 : 0.3);
             spawnParticles(e.x, e.y, 'death', e.isBoss ? 25 : 8);
@@ -2903,16 +2946,122 @@ function showNotification(msg, type = 'success') {
 }
 
 // ============================================================
+// HIGH SCORES (local top 10)
+// ============================================================
+function fmtNum(n) {
+    return Math.floor(Number(n) || 0).toLocaleString('en-US');
+}
+
+function loadScores() {
+    try {
+        const raw = JSON.parse(localStorage.getItem(SCORE_KEY) || '[]');
+        if (!Array.isArray(raw)) return [];
+        return raw
+            .filter(e => e && typeof e === 'object' && Number.isFinite(Number(e.score)))
+            .map(e => ({
+                id: String(e.id || ''),
+                score: Math.max(0, Math.floor(Number(e.score) || 0)),
+                wave: Math.max(0, Math.floor(Number(e.wave) || 0)),
+                kills: Math.max(0, Math.floor(Number(e.kills) || 0)),
+                mode: DIFFICULTIES[e.mode] ? e.mode : DEFAULT_DIFFICULTY,
+                map: MAPS[e.map] ? e.map : 'desert',
+                date: Number(e.date) || 0,
+            }))
+            .sort((a, b) => b.score - a.score || b.wave - a.wave)
+            .slice(0, MAX_SCORES);
+    } catch (err) { return []; }
+}
+
+function saveScores(list) {
+    try {
+        localStorage.setItem(SCORE_KEY, JSON.stringify(list.slice(0, MAX_SCORES)));
+    } catch (err) { /* private mode -> this run just isn't saved */ }
+}
+
+function recordScore() {
+    if (game.scoreRecorded) return { rank: -1, scores: loadScores() };
+    game.scoreRecorded = true;
+    const entry = {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        score: Math.floor(game.score),
+        wave: game.wave,
+        kills: game.kills,
+        mode: game.difficulty,
+        map: game.selectedMap,
+        date: Date.now(),
+    };
+    let list = loadScores();
+    list.push(entry);
+    list.sort((a, b) => b.score - a.score || b.wave - a.wave);
+    const rank = list.findIndex(e => e.id === entry.id);
+    list = list.slice(0, MAX_SCORES);
+    saveScores(list);
+    updateBestLine();
+    return { rank: rank >= 0 && rank < MAX_SCORES ? rank : -1, scores: list, entry };
+}
+
+function bestForMode(mode) {
+    return loadScores().filter(e => e.mode === mode)[0] || null;
+}
+
+function updateBestLine() {
+    const el = document.getElementById('bestLine');
+    if (!el) return;
+    const mode = DIFFICULTIES[game.difficulty] ? game.difficulty : DEFAULT_DIFFICULTY;
+    const best = bestForMode(mode);
+    el.textContent = best
+        ? `🏆 BEST ${DIFFICULTIES[mode].label}: ${fmtNum(best.score)} · WAVE ${best.wave} · ${MAPS[best.map] ? MAPS[best.map].name : best.map}`
+        : `🏆 BEST ${DIFFICULTIES[mode].label}: —`;
+}
+
+function renderScores() {
+    const el = document.getElementById('scoresList');
+    if (!el) return;
+    const list = loadScores();
+    if (!list.length) {
+        el.innerHTML = '<div class="scores-empty">No runs yet. Go build a firing line. 🔫</div>';
+        return;
+    }
+    const rows = list.map((e, i) => {
+        const mode = DIFFICULTIES[e.mode] ? DIFFICULTIES[e.mode].label : '—';
+        const map = MAPS[e.map] ? MAPS[e.map].name : '—';
+        return `<div class="score-row">
+            <span class="rank">${i + 1}</span>
+            <span class="score-val">${fmtNum(e.score)}</span>
+            <span>${mode}</span>
+            <span>${map}</span>
+            <span>${e.wave}</span>
+            <span>${fmtNum(e.kills)}</span>
+        </div>`;
+    }).join('');
+    el.innerHTML = '<div class="score-row head"><span>#</span><span>SCORE</span><span>MODE</span><span>MAP</span><span>WAVE</span><span>KILLS</span></div>' + rows;
+}
+
+function openScores() {
+    renderScores();
+    document.getElementById('scoresModal').style.display = 'flex';
+}
+
+function closeScores() {
+    document.getElementById('scoresModal').style.display = 'none';
+}
+
+// ============================================================
 // GAME OVER / VICTORY
 // ============================================================
 function gameOver() {
     game.state = 'gameover';
     A.play('game_over');
+    const rec = recordScore();
+    const banner = rec.rank === 0
+        ? '<div class="new-high">🏆 NEW HIGH SCORE!</div>'
+        : rec.rank > 0 ? `<div class="new-high">#${rec.rank + 1} ON THE BOARD</div>` : '';
     document.getElementById('gameOverStats').innerHTML = `
+        ${banner}
         Mode: <span>${(DIFFICULTIES[game.difficulty] || DIFFICULTIES[DEFAULT_DIFFICULTY]).label}</span><br>
         Wave Reached: <span>${game.wave}</span><br>
         Enemies Killed: <span>${game.kills}</span><br>
-        Final Score: <span>${game.score}</span>
+        Final Score: <span>${fmtNum(game.score)}</span>
     `;
     document.getElementById('gameOverModal').style.display = 'flex';
 }
@@ -2920,12 +3069,17 @@ function gameOver() {
 function victory() {
     game.state = 'victory';
     A.play('victory');
+    const rec = recordScore();
+    const banner = rec.rank === 0
+        ? '<div class="new-high">🏆 NEW HIGH SCORE!</div>'
+        : rec.rank > 0 ? `<div class="new-high">#${rec.rank + 1} ON THE BOARD</div>` : '';
     document.getElementById('victoryStats').innerHTML = `
+        ${banner}
         Mode: <span>${(DIFFICULTIES[game.difficulty] || DIFFICULTIES[DEFAULT_DIFFICULTY]).label}</span><br>
         All <span>${game.maxWaves}</span> waves cleared!<br>
         Enemies Killed: <span>${game.kills}</span><br>
         Lives Remaining: <span>${game.lives}</span><br>
-        Final Score: <span>${game.score}</span>
+        Final Score: <span>${fmtNum(game.score)}</span>
     `;
     document.getElementById('victoryModal').style.display = 'flex';
 }

@@ -22,6 +22,7 @@ APCs, helis and bosses, and unlock the Armory Lab to push every gun to ★5.
 - **3 maps**, grid-snapped building (towers only go on cell centers)
 - **3 difficulties** — RECRUIT (classic), VETERAN (default), HARDCORE
 - **1×/2×/3× speed**, pause, hotkeys, auto-wave
+- **Local high-score board** — top 10 runs, per-difficulty score multipliers, BEST line on the menu
 - **Zero libraries** — plain HTML5 Canvas + Web Audio API
 
 ## Run it
@@ -48,6 +49,16 @@ npx http-server -p 8391 -c-1
 | `A` | Toggle auto-wave |
 | `1` `2` `3` | Game speed 1× / 2× / 3× (numpad works too) |
 | `⚙` gear | Settings: volume bars + credits |
+
+## High scores
+
+- Finished runs (win **or** loss) are saved to localStorage: top 10 by score, then wave.
+- Score multiplier: **Recruit ×1.0**, **Veteran ×1.5**, **Hardcore ×2.0**.
+- The main menu shows **BEST <mode>** for the selected difficulty; **🏆 HIGH SCORES**
+  opens the board (rank · score · mode · map · wave · kills).
+- The result screen shows **🏆 NEW HIGH SCORE!** or your rank on the board.
+- Scores are local to the browser (no account, no network) — they survive reloads but
+  not clearing site data.
 
 ## Audio system
 
@@ -125,6 +136,8 @@ time in tower range), and **Arctic**'s long winding path is the most forgiving.
   `A` hotkey, 1.5 s breather
 - Audio: master limiter + real-time gunshot throttle + voice caps (see Audio system)
 - `updateUI()` is rAF-coalesced (many kills per frame = one DOM update); particles cap at 800
+- Fit-to-screen scaling keeps the 1270px game layout usable on 720p laptops
+- localStorage keys: `armory_settings` (volumes), `armory_difficulty`, `armory_scores` (top 10)
 - Upgrade panel shows DPS, alpha/volley, bullet speed, lineup DPS for pierce guns, next-tier
   preview with % gain, and DPS-per-$1k efficiency
 
