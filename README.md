@@ -20,6 +20,7 @@ APCs, helis and bosses, and unlock the Armory Lab to push every gun to ★5.
   Tier 5 ($15,000, requires Tier 4)
 - **6 enemy types** + bosses at waves 10/20/30/35/40/45/50 (wave 50 is a war crime)
 - **3 maps**, grid-snapped building (towers only go on cell centers)
+- **3 difficulties** — RECRUIT (classic), VETERAN (default), HARDCORE
 - **1×/2×/3× speed**, pause, hotkeys, auto-wave
 - **Zero libraries** — plain HTML5 Canvas + Web Audio API
 
@@ -44,6 +45,7 @@ npx http-server -p 8391 -c-1
 | `SPACE` | Start next wave |
 | `U` | Upgrade selected tower |
 | `P` | Pause |
+| `A` | Toggle auto-wave |
 | `1` `2` `3` | Game speed 1× / 2× / 3× (numpad works too) |
 | `⚙` gear | Settings: volume bars + credits |
 
@@ -67,25 +69,62 @@ Two sources, one rule: **recordings always win, synthesizers fill the gaps.**
 - Settings (⚙) has MASTER / WEAPONS / EFFECTS bars, mute, a "TEST A GUN" button, and a live
   count of loaded recordings. All persisted to localStorage.
 
+### Mix protection (v1.1.0)
+
+Late waves put 30 guns, hundreds of impacts and explosions into the same second. The
+master bus now runs through a **limiter** (DynamicsCompressor, -8 dB / 20:1) so it stays
+loud without clipping.
+
+- Gunshot audio is throttled on a **real-time clock** (~110 ms per tower), so 3× game
+  speed no longer triples the sound rate.
+- Hard caps: **18 active gun voices** (40 total), **26 SFX events/sec**, plus per-sound
+  cooldowns for hits, deaths, explosions and UI blips.
+- Noise buffers are cached — fast guns no longer allocate a fresh buffer per hit and
+  stutter/drop out.
+- Recordings load **6 files in parallel**; on GitHub Pages the old sequential loader
+  took ~16 s and left the Railgun (last in line) silent. The hint bar shows load progress
+  (`🔊 12/35` → `🔊 35/35 ready`).
+
 ## Balance (verified by simulation)
 
-| Build | Result |
-|-------|--------|
-| ★1 guns, no upgrades, no Lab | dies ~wave 30 |
-| ★3 guns, no Lab | dies ~wave 44 |
-| 30× ★5 with Lab | **wins wave 50 with 20/20 lives**, 2,904 kills |
+| Mode | Build | Result |
+|------|-------|--------|
+| RECRUIT | 20× ★5 maxed | wins wave 50 with 20/20 lives (old v1.0.1 balance) |
+| VETERAN | 16× ★5 maxed | dies on wave 50 |
+| VETERAN | 20× ★5 maxed | wins Desert with **10/20 lives**; Urban is tighter |
+| VETERAN | 24× ★5 maxed | wins wave 50 with 20/20 lives |
+| VETERAN | 30× ★5 maxed | wins wave 50 with 20/20 lives |
+| HARDCORE | 24× ★5 maxed | dies on wave 50 |
+| HARDCORE | 30× ★5 maxed | wins wave 50 with 15/15 lives |
 
-Progressive late-game scaling: `1 + (wave-1)*0.08 + ((wave-30)²)*0.05` — smooth handoff at 30,
-~25× HP by wave 50.
+Enemy HP scaling per mode:
+
+```
+waveScale = 1 + (wave-1)*hpLin + max(0, wave-30)² * hpLate
+
+RECRUIT   hpLin 0.08   hpLate 0.05   →  wave-50 infantry   2,492 HP
+VETERAN   hpLin 0.10   hpLate 0.16   →  wave-50 infantry   6,990 HP
+HARDCORE  hpLin 0.10   hpLate 0.22   →  wave-50 infantry   9,390 HP
+```
+
+The quadratic term only bites after wave 30. Early waves are unchanged; the last ten are
+where the build gets checked. In simulation the **Urban** path is the tightest (shortest
+time in tower range), and **Arctic**'s long winding path is the most forgiving.
 
 ## Dev notes
 
-- Started gold **$1,500**, kill rewards scale ×1.05 per wave, wave bonus `100 + wave*25`
+- Starting gold: **$1,500** (Recruit/Veteran) or **$1,250** (Hardcore); kill rewards scale
+  ×1.05 per wave, wave bonus `100 + wave*25`
 - Towers are grid-snapped (`GRID = 50`) — road tiles are blocked, one tower per cell
 - Bullets use **lead prediction** (fixed-point intercept solve) so fast movers get hit
   (measured 33% → 100% accuracy vs scouts) and **segment-swept collision** so 3× speed can't
   tunnel through hitboxes
-- Railgun is hitscan (no bullet objects — damages along the beam)
+- Railgun is hitscan (no bullet objects — damages along the beam). v1.1.0 adds a thicker
+  two-pass beam, impact rings and floating damage numbers so the hit is unmistakable
+- Auto-wave is a real feature now (it was only in the README before v1.1.0): `AUTO` button,
+  `A` hotkey, 1.5 s breather
+- Audio: master limiter + real-time gunshot throttle + voice caps (see Audio system)
+- `updateUI()` is rAF-coalesced (many kills per frame = one DOM update); particles cap at 800
 - Upgrade panel shows DPS, alpha/volley, bullet speed, lineup DPS for pierce guns, next-tier
   preview with % gain, and DPS-per-$1k efficiency
 

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Armory Defense v1.0.1</title>
+    <title>Armory Defense v1.1.0</title>
     <style>
         :root {
             --primary: #ff6b35;
@@ -133,6 +133,57 @@
             margin-top: 4px;
         }
 
+        /* ==================== DIFFICULTY ==================== */
+        .difficulty-selector {
+            display: flex;
+            gap: 14px;
+            margin-bottom: 28px;
+        }
+
+        .diff-card {
+            min-width: 172px;
+            padding: 9px 18px;
+            background: var(--bg-card);
+            border: 2px solid var(--border);
+            color: var(--text-dim);
+            font-family: 'Courier New', monospace;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-align: center;
+        }
+
+        .diff-card:hover {
+            border-color: var(--primary);
+            color: var(--text);
+            transform: translateY(-2px);
+        }
+
+        .diff-card.selected {
+            border-color: var(--secondary);
+            color: var(--text);
+            box-shadow: 0 0 18px rgba(0,255,136,0.3);
+        }
+
+        .diff-card[data-diff="hardcore"].selected {
+            border-color: var(--danger);
+            box-shadow: 0 0 18px rgba(255,68,68,0.35);
+        }
+
+        .diff-card .diff-name {
+            display: block;
+            font-size: 12px;
+            font-weight: bold;
+            letter-spacing: 2px;
+        }
+
+        .diff-card .diff-blurb {
+            display: block;
+            font-size: 8px;
+            margin-top: 3px;
+            letter-spacing: 0.5px;
+            color: var(--text-dim);
+        }
+
         .start-btn {
             padding: 15px 50px;
             font-size: 18px;
@@ -254,6 +305,22 @@
         }
 
         .ctrl-btn.pause-btn:hover { background: rgba(255,107,53,0.4); }
+
+        .ctrl-btn.auto-btn {
+            background: rgba(0,204,255,0.12);
+            color: var(--info);
+            border-color: rgba(0,204,255,0.35);
+            font-size: 10px;
+            padding: 5px 9px;
+        }
+
+        .ctrl-btn.auto-btn:hover { background: rgba(0,204,255,0.28); }
+
+        .ctrl-btn.auto-btn.active {
+            background: var(--info);
+            color: #000;
+            box-shadow: 0 0 12px rgba(0,204,255,0.45);
+        }
 
         .ctrl-btn.gear-btn {
             background: rgba(255,215,0,0.12);
@@ -806,6 +873,22 @@
             </div>
         </div>
 
+        <div class="section-label">SELECT DIFFICULTY</div>
+        <div class="difficulty-selector">
+            <button class="diff-card" data-diff="recruit">
+                <span class="diff-name">🎖️ RECRUIT</span>
+                <span class="diff-blurb">Classic balance · 20 lives</span>
+            </button>
+            <button class="diff-card selected" data-diff="veteran">
+                <span class="diff-name">⚔️ VETERAN</span>
+                <span class="diff-blurb">Sharper late game · 20 lives</span>
+            </button>
+            <button class="diff-card" data-diff="hardcore">
+                <span class="diff-name">💀 HARDCORE</span>
+                <span class="diff-blurb">Brutal wave 50 · 15 lives</span>
+            </button>
+        </div>
+
         <button class="start-btn" id="startBtn">⚔️ START MISSION</button>
     </div>
 
@@ -839,6 +922,7 @@
                     <button class="speed-btn" data-speed="3">3×</button>
                 </div>
                 <button class="ctrl-btn pause-btn" id="pauseBtn">⏸</button>
+                <button class="ctrl-btn auto-btn" id="autoWaveBtn" title="Auto-wave (A)">AUTO</button>
                 <button class="ctrl-btn gear-btn" id="settingsBtn" title="Settings (sound + credits)">⚙</button>
             </div>
         </div>
@@ -870,9 +954,12 @@
                 <span>SPACE</span> Next Wave &nbsp;
                 <span>U</span> Upgrade &nbsp;
                 <span>P</span> Pause &nbsp;
+                <span>A</span> Auto-Wave &nbsp;
                 <span>1/2/3</span> Speed
             </div>
             <div class="hint">
+                <span id="audioStatus">🔊 …</span> &nbsp;
+                <span id="difficultyDisplay">VETERAN</span> &nbsp;
                 <span id="fpsDisplay">60 FPS</span>
             </div>
         </div>
@@ -944,6 +1031,6 @@
     <!-- ==================== NOTIFICATION ==================== -->
     <div id="notification"></div>
 
-    <script src="Game.js"></script>
+    <script src="Game.js?v=1.1.0"></script>
 </body>
 </html>

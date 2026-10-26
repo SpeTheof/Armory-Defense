@@ -1,5 +1,5 @@
 // ============================================================
-// ARMORY DEFENSE v1.0.1 - Complete Game Engine
+// ARMORY DEFENSE v1.1.0 - Complete Game Engine
 // Vibe Coded by Aura & Spe 🔫
 // ============================================================
 
@@ -23,13 +23,38 @@ const AudioEngine = {
     loadedCount: 0,      // total decoded recordings (shown in settings)
     pendingStartSound: false, // startGame's wave_start ran before decode finished
 
+    // ---- MIX PROTECTION (v1.1.0) ----
+    // 35 guns + 3 fast-fire speeds + hundreds of hits = a clipped, drop-out
+    // mess. A limiter on the master bus + voice/rate caps keeps it loud but
+    // clean instead of ear rape.
+    limiter: null,
+    voices: 0,               // active recorded buffer voices (all categories)
+    weaponVoices: 0,         // active gun-recording voices
+    maxVoices: 40,
+    maxWeaponVoices: 18,
+    lastPlayed: {},          // sound key -> ctx time of last trigger
+    eventTimes: [],          // rolling SFX trigger timestamps (CPU/rate guard)
+    noiseCache: {},          // reused noise buffers (stops GC stutter on fast hits)
+    audioTotal: 0,
+    audioLoaded: 0,
+
     init() {
         if (this.ctx) return;
         this.loadSettings(); // restore bars BEFORE the context opens
         this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+        // Master chain: per-sound gain -> masterGain -> limiter -> speakers.
+        // The limiter catches the sum of every gun + impact; no hard clipping.
         this.masterGain = this.ctx.createGain();
         this.masterGain.gain.value = this.muted ? 0 : this.masterVolume;
-        this.masterGain.connect(this.ctx.destination);
+        this.limiter = this.ctx.createDynamicsCompressor();
+        this.limiter.threshold.value = -8;   // start squashing above -8 dBFS
+        this.limiter.knee.value = 0;         // hard knee = limiter, not glue
+        this.limiter.ratio.value = 20;       // ~brick wall
+        this.limiter.attack.value = 0.003;   // fast enough for gun transients
+        this.limiter.release.value = 0.18;   // but not pumping
+        this.masterGain.connect(this.limiter);
+        this.limiter.connect(this.ctx.destination);
+
         this.loadFiles();
     },
 
@@ -58,7 +83,13 @@ const AudioEngine = {
         } catch (e) { /* private mode -> volumes live for the session only */ }
     },
 
+    setStatus(text) {
+        const el = document.getElementById('audioStatus');
+        if (el) el.textContent = text;
+    },
+
     async loadFiles() {
+        this.setStatus('🔊 loading…');
         // ============================================================
         // AUTO-DISCOVERY - drop recordings in, they just work:
         //   audio/weapons/  NN_Weapon_Name_Take.mp3  -> grouped per weapon,
@@ -176,21 +207,41 @@ const AudioEngine = {
             }
         }
 
-        // Decode everything + register rotation groups
-        const loaded = [];
+        // Decode everything + register rotation groups.
+        // v1.1.0: load in PARALLEL (6 at a time). The old sequential loop took
+        // ~16s on GitHub Pages and the railgun (last in the list) was silent
+        // long after players had bought it. Parallel cuts that to ~3s.
+        const jobs = [];
         for (const [key, list] of Object.entries(groups)) {
             list.sort((a, b) => a.take - b.take);
-            const variantKeys = [];
-            for (let i = 0; i < list.length; i++) {
+            list.forEach((item, i) => jobs.push({ key, item, vk: `${key}__v${i + 1}` }));
+        }
+        this.audioTotal = jobs.length;
+        this.audioLoaded = 0;
+        this.setStatus(`🔊 0/${this.audioTotal}`);
+        let cursor = 0;
+        const worker = async () => {
+            while (cursor < jobs.length) {
+                const job = jobs[cursor++];
                 try {
-                    const resp = await fetch(list[i].file);
+                    const resp = await fetch(job.item.file);
                     if (!resp.ok) continue;
                     const buf = await resp.arrayBuffer();
-                    const vk = `${key}__v${i + 1}`;
-                    this.loadedSounds[vk] = await this.ctx.decodeAudioData(buf);
-                    variantKeys.push(vk);
+                    this.loadedSounds[job.vk] = await this.ctx.decodeAudioData(buf);
+                    this.audioLoaded++;
+                    if (this.audioLoaded % 5 === 0 || this.audioLoaded === this.audioTotal) {
+                        this.setStatus(`🔊 ${this.audioLoaded}/${this.audioTotal}`);
+                    }
                 } catch (e) { /* broken file - skip */ }
             }
+        };
+        await Promise.all(Array.from({ length: Math.min(6, jobs.length) }, worker));
+
+        const loaded = [];
+        for (const [key, list] of Object.entries(groups)) {
+            const variantKeys = list
+                .map((_, i) => `${key}__v${i + 1}`)
+                .filter(vk => this.loadedSounds[vk]);
             if (variantKeys.length) {
                 this.variantGroups[key] = variantKeys;
                 this.variantIndex[key] = 0;
@@ -199,6 +250,7 @@ const AudioEngine = {
         }
         console.log(`[Audio] Loaded ${loaded.length} sounds: ${loaded.join(', ')}`);
         this.loadedCount = Object.keys(this.loadedSounds).length;
+        this.setStatus(this.loadedCount ? `🔊 ${this.loadedCount}/${this.audioTotal} ready` : '🔇 no recordings');
 
         // ---- MISSING SOUND DIAGNOSTIC ----
         // Every key the game asks for but has NO recording (= silent, since synth is off)
@@ -221,11 +273,41 @@ const AudioEngine = {
         }
     },
 
+    cooldownFor(name, cat) {
+        const table = {
+            hit_flesh: 0.055, enemy_death: 0.06,
+            explosion_small: 0.08, explosion_large: 0.12, explosion_massive: 0.2,
+            cash: 0.09, tower_place: 0.06, tower_upgrade: 0.06, tower_sell: 0.06,
+            cant_afford: 0.25, wave_start: 0.5, boss_appear: 0.5,
+            game_over: 1, victory: 1,
+        };
+        return table[name] !== undefined ? table[name] : (cat === 'weapons' ? 0.06 : 0.05);
+    },
+
     play(name, vol = 1.0) {
         if (!this.ctx) return;
         if (this.muted) return; // settings mute
         if (this.ctx.state === 'suspended') this.ctx.resume();
         const cat = this.soundCat[name] || 'sfx';
+
+        // ---- real-time mix guard (v1.1.0) ----
+        // Game speed must NEVER speed up audio. Per-key cooldown caps each gun
+        // at ~16 shots/sec of sound, even at 3x speed with 30 towers. The voice
+        // budget stops a wall of overlapping buffers from turning into mush.
+        const now = this.ctx.currentTime;
+        if (now - (this.lastPlayed[name] ?? -999) < this.cooldownFor(name, cat)) return;
+        if (cat === 'weapons' && this.weaponVoices >= this.maxWeaponVoices) return;
+        if (this.voices >= this.maxVoices) return;
+
+        // SFX (synth) events: hard cap ~26/sec. Late waves trigger hundreds of
+        // hit/death sounds per second - without this the AudioContext chokes.
+        if (cat === 'sfx') {
+            const ms = performance.now();
+            while (this.eventTimes.length && ms - this.eventTimes[0] > 1000) this.eventTimes.shift();
+            if (this.eventTimes.length >= 26) return;
+            this.eventTimes.push(ms);
+        }
+        this.lastPlayed[name] = now;
 
         // Variant rotation: cycle loaded variants in order (1-2-3-1-2-3...)
         const group = this.variantGroups[name];
@@ -256,6 +338,8 @@ const AudioEngine = {
     },
 
     _playBuffer(buf, vol, cat = 'sfx') {
+        if (this.voices >= this.maxVoices) return;
+        if (cat === 'weapons' && this.weaponVoices >= this.maxWeaponVoices) return;
         const src = this.ctx.createBufferSource();
         src.buffer = buf;
         const g = this.ctx.createGain();
@@ -263,15 +347,32 @@ const AudioEngine = {
         g.gain.value = vol * (cat === 'weapons' ? this.weaponVolume : this.effectsVolume);
         src.connect(g);
         g.connect(this.masterGain);
+
+        // voice accounting - freed when the buffer finishes
+        this.voices++;
+        if (cat === 'weapons') this.weaponVoices++;
+        let freed = false;
+        src.onended = () => {
+            if (freed) return;
+            freed = true;
+            this.voices = Math.max(0, this.voices - 1);
+            if (cat === 'weapons') this.weaponVoices = Math.max(0, this.weaponVoices - 1);
+            try { g.disconnect(); } catch (e) { /* already gone */ }
+        };
         src.start();
     },
 
-    // Create noise buffer for gun sounds
+    // Create/cache noise buffer for gun sounds. Reusing the same buffer per
+    // duration avoids allocating (and GC-stuttering) hundreds of buffers per
+    // second when 30 fast guns are shredding a wave.
     _noise(dur) {
-        const len = this.ctx.sampleRate * dur;
+        const key = dur.toFixed(3);
+        if (this.noiseCache[key]) return this.noiseCache[key];
+        const len = Math.max(1, Math.floor(this.ctx.sampleRate * dur));
         const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
         const d = buf.getChannelData(0);
         for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+        this.noiseCache[key] = buf;
         return buf;
     },
 
@@ -344,7 +445,7 @@ const AudioEngine = {
             const g = A.ctx.createGain();
             g.gain.setValueAtTime(0.5 * v, t);
             g.gain.exponentialRampToValueAtTime(0.01, t + 0.3);
-            noise.connect(filt); filt.connect(g); g.connect(A.ctx.destination);
+            noise.connect(filt); filt.connect(g); g.connect(A.masterGain);
             noise.start(t); noise.stop(t + 0.35);
             A._playOsc('sine', 100, 400, 0.2, 0.3 * v, t);
         },
@@ -369,7 +470,7 @@ const AudioEngine = {
             const g1 = A.ctx.createGain();
             g1.gain.setValueAtTime(0.2 * v, t);
             g1.gain.exponentialRampToValueAtTime(0.01, t + 0.4);
-            o1.connect(g1); g1.connect(A.ctx.destination);
+            o1.connect(g1); g1.connect(A.masterGain);
             o1.start(t); o1.stop(t + 0.45);
             // Discharge
             const t2 = t + 0.4;
@@ -387,7 +488,7 @@ const AudioEngine = {
             const g = A.ctx.createGain();
             g.gain.setValueAtTime(0.15 * v, t);
             g.gain.exponentialRampToValueAtTime(0.01, t + 0.25);
-            o.connect(g); g.connect(A.ctx.destination);
+            o.connect(g); g.connect(A.masterGain);
             o.start(t); o.stop(t + 0.25);
             // Crack
             const t2 = t + 0.2;
@@ -595,6 +696,19 @@ const A = AudioEngine; // Shorthand
 // GAME CONSTANTS & TOWER DEFINITIONS
 // ============================================================
 const CANVAS_W = 1000, CANVAS_H = 650;
+
+// ============================================================
+// DIFFICULTY (v1.1.0)
+// Recruit = the v1.0.1 balance (for the little brother).
+// Veteran = new default: same economy, sharper late-wave HP curve.
+// Hardcore = fewer lives, less seed money, wave 50 is a war crime.
+// ============================================================
+const DIFFICULTIES = {
+    recruit:  { label: 'RECRUIT',  lives: 20, gold: 1500, hpLin: 0.08, hpLate: 0.05, blurb: 'Classic balance' },
+    veteran:  { label: 'VETERAN',  lives: 20, gold: 1500, hpLin: 0.10, hpLate: 0.16, blurb: 'Sharper late game' },
+    hardcore: { label: 'HARDCORE', lives: 15, gold: 1250, hpLin: 0.10, hpLate: 0.22, blurb: 'No mercy' },
+};
+const DEFAULT_DIFFICULTY = 'veteran';
 
 const TOWER_CATEGORIES = [
     { name: 'SIDEARMS', weapons: ['glock', 'desert_eagle'] },
@@ -888,6 +1002,8 @@ const MAPS = {
 // ============================================================
 const game = {
     state: 'menu', // menu, playing, paused, gameover, victory
+    paused: false,
+    difficulty: DEFAULT_DIFFICULTY,
     gold: 1500,
     lives: 20,
     score: 0,
@@ -906,6 +1022,8 @@ const game = {
     spawnQueue: [],
     spawnTimer: 0,
     waveActive: false,
+    autoWave: false,
+    autoWaveTimer: 0,
     mouseX: 0,
     mouseY: 0,
     canPlace: false,
@@ -934,6 +1052,21 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
+    // Difficulty selection (RECRUIT / VETERAN / HARDCORE)
+    const diffCards = document.querySelectorAll('.diff-card');
+    const selectDifficulty = (key) => {
+        if (!DIFFICULTIES[key]) return;
+        game.difficulty = key;
+        diffCards.forEach(c => c.classList.toggle('selected', c.dataset.diff === key));
+        try { localStorage.setItem('armory_difficulty', key); } catch (e) { /* private mode */ }
+    };
+    diffCards.forEach(card => card.addEventListener('click', () => selectDifficulty(card.dataset.diff)));
+    try {
+        const saved = localStorage.getItem('armory_difficulty');
+        if (saved && DIFFICULTIES[saved]) selectDifficulty(saved);
+        else selectDifficulty(game.difficulty);
+    } catch (e) { selectDifficulty(game.difficulty); }
+
     // Draw map previews on menu
     drawMapPreviews();
 
@@ -948,6 +1081,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Pause
     document.getElementById('pauseBtn').addEventListener('click', togglePause);
+
+    // Auto-wave
+    document.getElementById('autoWaveBtn').addEventListener('click', toggleAutoWave);
 
     // Speed buttons
     document.querySelectorAll('.speed-btn').forEach(btn => {
@@ -1006,7 +1142,9 @@ function syncSettingsUI() {
     document.getElementById('volWeaponsVal').textContent = pct(A.weaponVolume) + '%';
     document.getElementById('volEffectsVal').textContent = pct(A.effectsVolume) + '%';
     document.getElementById('muteBtn').textContent = A.muted ? '🔇 MUTED — CLICK TO UNMUTE' : '🔊 SOUND ON — CLICK TO MUTE';
-    document.getElementById('soundsLoadedCount').textContent = A.loadedCount;
+    document.getElementById('soundsLoadedCount').textContent = A.audioTotal && A.loadedCount < A.audioTotal
+        ? `${A.loadedCount}/${A.audioTotal} (loading…)`
+        : A.loadedCount;
 }
 
 function wireSettings() {
@@ -1054,9 +1192,11 @@ function startGame() {
     if (A.loadedCount === 0) A.pendingStartSound = true;
     else A.play('wave_start');
 
+    const diff = DIFFICULTIES[game.difficulty] || DIFFICULTIES[DEFAULT_DIFFICULTY];
     game.state = 'playing';
-    game.gold = 1500;
-    game.lives = 20;
+    game.paused = false;
+    game.gold = diff.gold;
+    game.lives = diff.lives;
     game.score = 0;
     game.wave = 0;
     game.kills = 0;
@@ -1067,13 +1207,18 @@ function startGame() {
     game.particles = [];
     game.spawnQueue = [];
     game.waveActive = false;
+    game.autoWave = false;
+    game.autoWaveTimer = 0;
     game.selectedTowerType = null;
     game.selectedTower = null;
     game.armory = { unlock4: false, unlock5: false };
 
     document.getElementById('mainMenu').style.display = 'none';
     document.getElementById('gameScreen').style.display = 'block';
+    const modeEl = document.getElementById('difficultyDisplay');
+    if (modeEl) modeEl.textContent = diff.label;
 
+    setGameSpeed(1);
     updateUI();
     lastTime = performance.now();
     requestAnimationFrame(gameLoop);
@@ -1405,6 +1550,7 @@ function onKeyDown(e) {
         if (e.key === 'Escape') closeSettings();
         return;
     }
+    if (game.state !== 'playing') return;
     if (e.key === 'Escape') deselectAll();
     if (e.key === ' ' || e.code === 'Space') {
         e.preventDefault();
@@ -1412,6 +1558,7 @@ function onKeyDown(e) {
     }
     if (e.key === 'p' || e.key === 'P') togglePause();
     if (e.key === 'u' || e.key === 'U') upgradeSelectedTower();
+    if (e.key === 'a' || e.key === 'A') toggleAutoWave();
     // Speed: number row 1/2/3 OR numpad 1/2/3
     // (e.key is '1' for both layouts with NumLock on; e.code catches NumLock-off numpad)
     const speedByKey = { '1': 1, '2': 2, '3': 3, 'Numpad1': 1, 'Numpad2': 2, 'Numpad3': 3 };
@@ -1479,12 +1626,14 @@ function placeTower(type, x, y) {
 // WAVE SYSTEM
 // ============================================================
 function startNextWave() {
+    if (game.state !== 'playing') return;
     if (game.waveActive || game.wave >= game.maxWaves) return;
 
     game.wave++;
     game.waveActive = true;
     game.spawnQueue = [];
     game.spawnTimer = 0;
+    game.autoWaveTimer = 0;
 
     const waveDef = WAVES[game.wave - 1];
     let delay = 0;
@@ -1511,9 +1660,12 @@ function spawnEnemy(type) {
     const def = ENEMIES[type];
     const waypoints = MAPS[game.selectedMap].waypoints;
     // Progressive difficulty: linear scaling through wave 30, then an
-    // accelerating (quadratic) endgame curve — smooth handoff, brutal finish
-    const lateBonus = Math.pow(Math.max(0, game.wave - 30), 2) * 0.05;
-    const waveScale = 1 + (game.wave - 1) * 0.08 + lateBonus;
+    // accelerating (quadratic) endgame curve. The curve is per-difficulty
+    // (see DIFFICULTIES): Recruit is the v1.0.1 curve, Veteran/Hardcore ramp
+    // much harder after wave 30.
+    const diff = DIFFICULTIES[game.difficulty] || DIFFICULTIES[DEFAULT_DIFFICULTY];
+    const lateBonus = Math.pow(Math.max(0, game.wave - 30), 2) * diff.hpLate;
+    const waveScale = 1 + (game.wave - 1) * diff.hpLin + lateBonus;
 
     game.enemies.push({
         type,
@@ -1580,12 +1732,31 @@ function togglePause() {
     if (game.paused) showNotification('PAUSED', 'warning');
 }
 
+function toggleAutoWave() {
+    if (game.state !== 'playing') return;
+    game.autoWave = !game.autoWave;
+    game.autoWaveTimer = 0;
+    const btn = document.getElementById('autoWaveBtn');
+    btn.classList.toggle('active', game.autoWave);
+    btn.textContent = game.autoWave ? 'AUTO ON' : 'AUTO';
+    showNotification(game.autoWave ? '⚡ AUTO-WAVE ON — next wave starts automatically' : 'AUTO-WAVE OFF', game.autoWave ? 'success' : 'warning');
+}
+
 // ============================================================
 // UPDATE LOGIC
 // ============================================================
 function update(dt) {
     if (game.state !== 'playing') return;
     game.time += dt;
+
+    // Auto-wave: 1.5s breather after a clear, then send the next one
+    if (game.autoWave && !game.waveActive && game.wave < game.maxWaves && game.enemies.length === 0) {
+        game.autoWaveTimer += dt;
+        if (game.autoWaveTimer >= 1.5) {
+            game.autoWaveTimer = 0;
+            startNextWave();
+        }
+    }
 
     // Screen shake decay
     if (game.shakeMag > 0.1) {
@@ -1746,14 +1917,14 @@ function fireTower(tower, target, stats) {
     const def = TOWERS[tower.type];
     const audioName = tower.type;
 
-    // Play sound. Fast guns (fireRate < 0.1s) fire more often than the ear can
-    // parse - play every Nth shot for a steady audible cadence (~0.12s apart)
-    if (stats.fireRate >= 0.1) {
-        A.play(audioName, 0.5);
-    } else {
-        tower.shotCount = (tower.shotCount || 0) + 1;
-        const n = Math.max(2, Math.ceil(0.12 / stats.fireRate));
-        if (tower.shotCount % n === 0) A.play(audioName, 0.45);
+    // Play sound on a REAL-TIME clock, not game time. The old code spaced fast
+    // guns by their in-game fire rate, so 3x speed fired 3x the sounds into the
+    // mix (and 30 towers could stack 100+ voices/sec). Now every tower gets one
+    // sound every ~110ms of wall time no matter what speed the game is at.
+    const nowMs = performance.now();
+    if (!tower.nextSoundAt || nowMs >= tower.nextSoundAt) {
+        A.play(audioName, stats.fireRate < 0.1 ? 0.42 : 0.5);
+        tower.nextSoundAt = nowMs + (stats.fireRate < 0.1 ? 110 : 45);
     }
 
     // Muzzle flash
@@ -1801,20 +1972,21 @@ function createBullet(tower, target, stats, angle) {
 
 function fireRailgun(tower, stats) {
     // Sound is already played by fireTower's generic handler
-    addScreenShake(4);
+    addScreenShake(5);
 
     // Beam goes in tower.angle direction, hits all enemies in line
     const dx = Math.cos(tower.angle);
     const dy = Math.sin(tower.angle);
 
-    // Visual beam particle
-    game.particles.push({
+    // Visual beam particle (longer + brighter than v1.0.1 so it reads as a
+    // hit even with the sound muted - this was the "railgun does nothing" feel)
+    pushParticle({
         type: 'railgun_beam',
         x: tower.x, y: tower.y,
         angle: tower.angle,
         length: stats.range,
-        life: 0.3, maxLife: 0.3,
-        color: '#00aaff',
+        life: 0.45, maxLife: 0.45,
+        color: '#7fe8ff',
     });
 
     // Hit all enemies near the beam line
@@ -1827,6 +1999,18 @@ function fireRailgun(tower, stats) {
         if (perpDist < e.size + 8) {
             damageEnemy(e, stats.damage);
             spawnParticles(e.x, e.y, 'hit', 4);
+
+            // Impact ring + damage number: unmistakable feedback
+            pushParticle({
+                type: 'railgun_impact', x: e.x, y: e.y,
+                life: 0.32, maxLife: 0.32, size: e.size + 6,
+                vx: 0, vy: 0, color: '#aef4ff',
+            });
+            pushParticle({
+                type: 'damage_number', x: e.x, y: e.y - e.size - 6,
+                life: 0.75, maxLife: 0.75, vx: 0, vy: -1.1,
+                color: '#eaffff', text: String(stats.damage),
+            });
         }
     });
 }
@@ -1912,7 +2096,17 @@ function explodeAt(x, y, radius, damage) {
 // ============================================================
 // PARTICLE SYSTEM
 // ============================================================
+const MAX_PARTICLES = 800; // hard cap: 3x speed + 30 towers = particle flood
+
+function pushParticle(p) {
+    if (game.particles.length >= MAX_PARTICLES) game.particles.splice(0, 120);
+    game.particles.push(p);
+}
+
 function spawnParticles(x, y, type, count) {
+    if (game.particles.length + count > MAX_PARTICLES) {
+        game.particles.splice(0, Math.min(game.particles.length, game.particles.length + count - MAX_PARTICLES));
+    }
     for (let i = 0; i < count; i++) {
         const p = { x, y, type, life: 0, vx: 0, vy: 0, size: 2, color: '#fff', gravity: 0 };
         switch (type) {
@@ -1974,7 +2168,7 @@ function spawnParticles(x, y, type, count) {
                 break;
         }
         p.maxLife = p.life;
-        game.particles.push(p);
+        pushParticle(p);
     }
 }
 
@@ -2539,14 +2733,47 @@ function drawParticles(c) {
         if (p.type === 'railgun_beam') {
             c.save();
             c.globalAlpha = alpha;
+            // outer glow
             c.strokeStyle = p.color;
-            c.lineWidth = 4 * alpha;
+            c.lineWidth = 11 * alpha;
             c.shadowColor = p.color;
-            c.shadowBlur = 10;
+            c.shadowBlur = 18;
             c.beginPath();
             c.moveTo(p.x, p.y);
             c.lineTo(p.x + Math.cos(p.angle) * p.length, p.y + Math.sin(p.angle) * p.length);
             c.stroke();
+            // white-hot core
+            c.strokeStyle = '#f2ffff';
+            c.lineWidth = 2.5 * alpha;
+            c.shadowBlur = 8;
+            c.stroke();
+            c.restore();
+            return;
+        }
+
+        if (p.type === 'railgun_impact') {
+            c.save();
+            c.globalAlpha = alpha;
+            c.strokeStyle = p.color;
+            c.lineWidth = 2;
+            c.shadowColor = p.color;
+            c.shadowBlur = 12;
+            c.beginPath();
+            c.arc(p.x, p.y, p.size + (1 - alpha) * 16, 0, Math.PI * 2);
+            c.stroke();
+            c.restore();
+            return;
+        }
+
+        if (p.type === 'damage_number') {
+            c.save();
+            c.globalAlpha = Math.min(1, alpha * 1.6);
+            c.fillStyle = p.color;
+            c.font = 'bold 13px Courier New';
+            c.textAlign = 'center';
+            c.shadowColor = '#0088cc';
+            c.shadowBlur = 6;
+            c.fillText(p.text, p.x, p.y);
             c.restore();
             return;
         }
@@ -2598,7 +2825,20 @@ function drawPlacementPreview(c, map) {
 // ============================================================
 // UI UPDATE
 // ============================================================
+// Coalesce UI updates: late waves call updateUI() on every kill, which used to
+// do 15+ DOM queries per dead enemy. Now many calls in one frame collapse into
+// a single render - a big win at 3x speed.
+let uiQueued = false;
 function updateUI() {
+    if (uiQueued) return;
+    uiQueued = true;
+    requestAnimationFrame(() => {
+        uiQueued = false;
+        renderUI();
+    });
+}
+
+function renderUI() {
     document.getElementById('goldDisplay').textContent = game.gold;
     document.getElementById('livesDisplay').textContent = game.lives;
     document.getElementById('waveDisplay').textContent = `${game.wave}/${game.maxWaves}`;
@@ -2669,6 +2909,7 @@ function gameOver() {
     game.state = 'gameover';
     A.play('game_over');
     document.getElementById('gameOverStats').innerHTML = `
+        Mode: <span>${(DIFFICULTIES[game.difficulty] || DIFFICULTIES[DEFAULT_DIFFICULTY]).label}</span><br>
         Wave Reached: <span>${game.wave}</span><br>
         Enemies Killed: <span>${game.kills}</span><br>
         Final Score: <span>${game.score}</span>
@@ -2680,6 +2921,7 @@ function victory() {
     game.state = 'victory';
     A.play('victory');
     document.getElementById('victoryStats').innerHTML = `
+        Mode: <span>${(DIFFICULTIES[game.difficulty] || DIFFICULTIES[DEFAULT_DIFFICULTY]).label}</span><br>
         All <span>${game.maxWaves}</span> waves cleared!<br>
         Enemies Killed: <span>${game.kills}</span><br>
         Lives Remaining: <span>${game.lives}</span><br>
